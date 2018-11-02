@@ -9,7 +9,8 @@ local pcap    = require "pcap"
 local limiter = require "software-ratecontrol"
 
 function configure(parser)
-	parser:argument("dev", "Device to use."):args(1):convert(tonumber)
+	parser:argument("edev", "Device to use for egress."):args(1):convert(tonumber)
+	parser:argument("idev", "Device to use for ingress."):args(1):convert(tonumber)
 	parser:argument("file", "File to replay."):args(1)
 	parser:option("-r --rate-multiplier", "Speed up or slow down replay, 1 = use intervals from file, default = replay as fast as possible"):default(0):convert(tonumber):target("rateMultiplier")
 	parser:flag("-l --loop", "Repeat pcap file.")
@@ -18,14 +19,15 @@ function configure(parser)
 end
 
 function master(args)
-	local dev = device.config{port = args.dev}
+	local edev = device.config{port = args.edev}
+	local idev = device.config{port = args.idev, dropEnable = false}
 	device.waitForLinks()
 	local rateLimiter
 	if args.rateMultiplier > 0 then
-		rateLimiter = limiter:new(dev:getTxQueue(0), "custom")
+		rateLimiter = limiter:new(edev:getTxQueue(0), "custom")
 	end
-	mg.startTask("replay", dev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier)
-	stats.startStatsTask{txDevices = {dev}}
+	mg.startTask("replay", edev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier)
+	stats.startStatsTask{txDevices = {edev}, rxDevices = {idev}}
 	mg.waitForTasks()
 end
 
