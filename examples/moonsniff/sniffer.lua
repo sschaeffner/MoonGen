@@ -179,6 +179,9 @@ function core_capture(queue, bufs, writer, args)
 			if timestamp then
 				-- convert to seconds
 				timestamp = timestamp / 1e9
+				-- remove timstamp from packet data
+				sz = bufs[i]:getSize() - 8
+				bufs[i]:setSize(sz)
 				writer:writeBuf(timestamp, bufs[i])
 			end
 		end
