@@ -12,6 +12,8 @@ function configure(parser)
 	parser:argument("edev", "Device to use for egress."):args(1):convert(tonumber)
 	parser:argument("idev", "Device to use for ingress."):args(1):convert(tonumber)
 	parser:argument("file", "File to replay."):args(1)
+	parser:option("-s --src-mac", "Overwrite source MAC address of every sent packet"):default(''):target("srcMAC")
+	parser:option("-d --dst-mac", "Overwrite destination MAC address of every sent packet"):default(''):target("dstMAC")
 	parser:option("-f --fix-rate", "Fixed net data rate in Mbit per second (ignore timestamps in pcap)"):default(0):convert(tonumber):target("fixedRate")
 	parser:option("-r --rate-multiplier", "Speed up or slow down replay, 1 = use intervals from file, default = replay as fast as possible"):default(0):convert(tonumber):target("rateMultiplier")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(0):convert(tonumber):target("numberOfPackets")
@@ -32,12 +34,20 @@ function master(args)
 	if args.rateMultiplier > 0 or args.fixedRate > 0 then
 		rateLimiter = limiter:new(edev:getTxQueue(0), "custom")
 	end
-	mg.startTask("replay", edev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier, args.fixedRate, args.numberOfPackets)
+	if args.dstMAC ~= '' then
+		print("Replace dstMAC with " ..  args.dstMAC)
+	end
+	if args.srcMAC ~= '' then
+		print("Replace srcMAC with " .. args.srcMAC)
+	end
+	dstmc = parseMacAddress(args.dstMAC, 0)
+	srcmc = parseMacAddress(args.srcMAC, 0)
+	mg.startTask("replay", edev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier, args.fixedRate, args.numberOfPackets, dstmc, srcmc)
 	stats.startStatsTask{txDevices = {edev}, rxDevices = {idev}}
 	mg.waitForTasks()
 end
 
-function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfPackets)
+function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfPackets, dstMAC, srcMAC)
 	local mempool = memory:createMemPool(4096)
 	local bufs = mempool:bufArray()
 	local pcapFile = pcap:newReader(file)
@@ -53,6 +63,14 @@ function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfP
 				for i, buf in ipairs(bufs) do
 					if numberOfPackets > 0 then
 						if i > n then break end
+						if dstMAC ~= nil then
+							local pkt = buf:getEthernetPacket()
+							pkt.eth:setDst(dstMAC)
+						end
+						if srcMAC ~= nil then
+							local pkt = buf:getEthernetPacket()
+							pkt.eth:setSrc(srcMAC)
+						end
 						-- ts is in microseconds
 						local ts = buf.udata64
 						if prev > ts then
