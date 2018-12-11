@@ -15,6 +15,7 @@ function configure(parser)
 	parser:option("-s --src-mac", "Overwrite source MAC address of every sent packet"):default(''):target("srcMAC")
 	parser:option("-d --dst-mac", "Overwrite destination MAC address of every sent packet"):default(''):target("dstMAC")
 	parser:option("-f --fix-rate", "Fixed net data rate in Mbit per second (ignore timestamps in pcap)"):default(0):convert(tonumber):target("fixedRate")
+	parser:option("-v --fix-packetrate", "Fixed net data rate in packets per second (ignore timestamps in pcap)"):default(0):convert(tonumber):target("fixedPacketRate")
 	parser:option("-r --rate-multiplier", "Speed up or slow down replay, 1 = use intervals from file, default = replay as fast as possible"):default(0):convert(tonumber):target("rateMultiplier")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(0):convert(tonumber):target("numberOfPackets")
 	parser:flag("-l --loop", "Repeat pcap file.")
@@ -27,11 +28,15 @@ function master(args)
 	local idev = device.config{port = args.idev, dropEnable = false}
 	device.waitForLinks()
 	local rateLimiter
+	if args.rateMultiplier > 0 and args.fixedPacketRate > 0 then
+		print("-r and -v option cannot be set at the same time.")
+		return
+	end
 	if args.rateMultiplier > 0 and args.fixedRate > 0 then
 		print("-r and -f option cannot be set at the same time.")
 		return
 	end
-	if args.rateMultiplier > 0 or args.fixedRate > 0 then
+	if args.rateMultiplier > 0 or args.fixedRate > 0 or args.fixedPacketRate then
 		rateLimiter = limiter:new(edev:getTxQueue(0), "custom")
 	end
 	if args.dstMAC ~= '' then
@@ -40,20 +45,24 @@ function master(args)
 	if args.srcMAC ~= '' then
 		print("Replace srcMAC with " .. args.srcMAC)
 	end
+	if args.fixedPacketRate ~= 0 then
+		print("Fixed packet rate " .. args.fixedPacketRate .. " pps")
+	end
 	dstmc = parseMacAddress(args.dstMAC, 0)
 	srcmc = parseMacAddress(args.srcMAC, 0)
-	mg.startTask("replay", edev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier, args.fixedRate, args.numberOfPackets, dstmc, srcmc)
+	mg.startTask("replay", edev:getTxQueue(0), args.file, args.loop, rateLimiter, args.rateMultiplier, args.fixedRate, args.numberOfPackets, dstmc, srcmc, args.fixedPacketRate)
 	stats.startStatsTask{txDevices = {edev}, rxDevices = {idev}}
 	mg.waitForTasks()
 end
 
-function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfPackets, dstMAC, srcMAC)
+function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfPackets, dstMAC, srcMAC, fixedPacketRate)
 	local mempool = memory:createMemPool(4096)
 	local bufs = mempool:bufArray()
 	local pcapFile = pcap:newReader(file)
 	local prev = 0
 	local linkSpeed = queue.dev:getLinkStatus().speed
 	while mg.running() do
+		fixedRateAcc = 0
 		local n = pcapFile:read(bufs)
 		if n > 0 and numberOfPackets > 0 then
 			if rateLimiter ~= nil then
@@ -82,6 +91,13 @@ function replay(queue, file, loop, rateLimiter, multiplier, fixedRate, numberOfP
 						delay = delay / (8000 / linkSpeed) -- delay in bytes
 						if fixedRate > 0 then
 							delay = (sz + 4) / (fixedRate/10000)
+						end
+						if fixedPacketRate > 0 then
+							testdelay =  10000000000 / fixedPacketRate / 8 - (sz + 4)
+							delay = (testdelay > 0) and testdelay or 0
+							if testdelay < 0 then
+								fixedRateAcc = fixedRateAcc + testdelay + (sz + 4)
+							end
 						end
 						buf:setDelay(delay)
 						prev = ts
