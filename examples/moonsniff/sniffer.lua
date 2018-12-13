@@ -29,7 +29,7 @@ function configure(parser)
 	parser:flag("-l --live", "Do some live processing during packet capture. Lower performance than standard mode.")
 	parser:flag("-f --fast", "Set fast flag to reduce the amount of live processing for higher performance. Only has effect if live flag is also set")
 	parser:flag("-c --capture", "If set, all incoming packets are captured as a whole.")
-	parser:option("-s --snaplen", "Maximum capture length of recorded packets."):args(nil):default("snaplen")
+	parser:option("-s --snaplen", "Maximum capture length of recorded packets."):default(nil)
 	parser:flag("-d --debug", "Insted of reading real input, some fake input is generated and written to the output files.")
 	return parser:parse()
 end
