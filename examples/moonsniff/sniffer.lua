@@ -29,6 +29,7 @@ function configure(parser)
 	parser:flag("-l --live", "Do some live processing during packet capture. Lower performance than standard mode.")
 	parser:flag("-f --fast", "Set fast flag to reduce the amount of live processing for higher performance. Only has effect if live flag is also set")
 	parser:flag("-c --capture", "If set, all incoming packets are captured as a whole.")
+	parser:option("-s --snaplen", "Maximum capture length of recorded packets."):args(nil):default("snaplen")
 	parser:flag("-d --debug", "Insted of reading real input, some fake input is generated and written to the output files.")
 	return parser:parse()
 end
@@ -182,7 +183,7 @@ function core_capture(queue, bufs, writer, args)
 				-- remove timstamp from packet data
 				sz = bufs[i]:getSize() - 8
 				bufs[i]:setSize(sz)
-				writer:writeBuf(timestamp, bufs[i])
+				writer:writeBuf(timestamp, bufs[i], args.snaplen)
 			end
 		end
 		bufs:free(rx)
