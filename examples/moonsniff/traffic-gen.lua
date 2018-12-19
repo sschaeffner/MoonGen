@@ -36,8 +36,11 @@ function master(args)
 
 	stats.startStatsTask { txDevices = { args.dev[1] }, rxDevices = { args.dev[2] } }
 
+        dstmc = parseMacAddress(args.dstMAC, 0)
+	srcmc = parseMacAddress(args.srcMAC, 0)
+
 	rateLimiter = limiter:new(dev0tx, "custom")
-	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter)
+	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc)
 
 
 	sender0:wait()
@@ -45,7 +48,7 @@ function master(args)
 	lm.waitForTasks()
 end
 
-function generateTraffic(queue, args, rateLimiter)
+function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	log:info("Trying to enable rx timestamping of all packets, this isn't supported by most nics")
 	local pkt_id = 0
 	local numberOfPackets = args.numberOfPackets
@@ -61,16 +64,14 @@ function generateTraffic(queue, args, rateLimiter)
 		bufs:alloc(args.packetSize)
 
 		for i, buf in ipairs(bufs) do
+			local pkt = buf:getUdpPacket()
 			if dstMAC ~= nil then
-				local pkt = buf:getEthernetPacket()
 				pkt.eth:setDst(dstMAC)
 			end
 			if srcMAC ~= nil then
-				local pkt = buf:getEthernetPacket()
 				pkt.eth:setSrc(srcMAC)
 			end
 
-			local pkt = buf:getUdpPacket()
 			-- for setters to work correctly, the number is not allowed to exceed 16 bit
 			pkt.ip4:setID(band(pkt_id, 0xFFFF))
 			pkt.payload.uint32[0] = pkt_id
