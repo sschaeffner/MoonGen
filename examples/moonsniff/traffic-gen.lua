@@ -10,16 +10,20 @@ local timer  = require "timer"
 local log    = require "log"
 local stats  = require "stats"
 local bit    = require "bit"
+local limiter = require "software-ratecontrol"
 
-local PKT_LEN = 100 -- in byte
 local MS_TYPE = 0b01010101
 local band = bit.band
 
 function configure(parser)
 	parser:description("Generate traffic which can be used by moonsniff to establish latencies induced by a device under test.")
 	parser:argument("dev", "Devices to use."):args(2):convert(tonumber)
-	parser:option("-t --time", "Determines how long packets will be send in seconds."):args(1):convert(tonumber):default(10)
-	parser:option("-r --rate", "Approximate send rate in mbit/s. Due to IFG etc. rate on the wire may be higher."):args(1):convert(tonumber):default(1000)
+	parser:option("-v --fix-packetrate", "Approximate send rate in pps."):convert(tonumber):default(10000):target('fixedPacketRate')
+	parser:option("-s --src-mac", "Overwrite source MAC address of every sent packet"):default(''):target("srcMAC")
+	parser:option("-d --dst-mac", "Overwrite destination MAC address of every sent packet"):default(''):target("dstMAC")
+	parser:option("-p --packets", "Send only the number of packets specified"):default(100000):convert(tonumber):target("numberOfPackets")
+	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(100):target('packetSize')
+
 	return parser:parse()
 end
 
@@ -32,42 +36,61 @@ function master(args)
 
 	stats.startStatsTask { txDevices = { args.dev[1] }, rxDevices = { args.dev[2] } }
 
-	local sender0 = lm.startTask("generateTraffic", dev0tx, args)
+	rateLimiter = limiter:new(dev0tx, "custom")
+	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter)
+
 
 	sender0:wait()
 	lm.stop()
 	lm.waitForTasks()
 end
 
-function generateTraffic(queue, args)
+function generateTraffic(queue, args, rateLimiter)
 	log:info("Trying to enable rx timestamping of all packets, this isn't supported by most nics")
 	local pkt_id = 0
+	local numberOfPackets = args.numberOfPackets
 	local runtime = timer:new(args.time)
-	local hist = hist:new()
 	local mempool = memory.createMemPool(function(buf)
 		buf:getUdpPacket():fill {
-			pktLength = PKT_LEN;
+			pktLength = args.packetSize;
 		}
 	end)
 	local bufs = mempool:bufArray()
-	if lm.running() then
-		lm.sleepMillis(500)
-	end
-	log:info("Trying to generate ~" .. args.rate .. " Mbit/s")
-	queue:setRate(args.rate)
-	local runtime = timer:new(args.time)
-	while lm.running() and runtime:running() do
-		bufs:alloc(PKT_LEN)
+	counter = 0
+	while lm.running() do
+		bufs:alloc(args.packetSize)
 
 		for i, buf in ipairs(bufs) do
+			if dstMAC ~= nil then
+				local pkt = buf:getEthernetPacket()
+				pkt.eth:setDst(dstMAC)
+			end
+			if srcMAC ~= nil then
+				local pkt = buf:getEthernetPacket()
+				pkt.eth:setSrc(srcMAC)
+			end
+
 			local pkt = buf:getUdpPacket()
 			-- for setters to work correctly, the number is not allowed to exceed 16 bit
 			pkt.ip4:setID(band(pkt_id, 0xFFFF))
 			pkt.payload.uint32[0] = pkt_id
 			pkt.payload.uint8[4] = MS_TYPE
 			pkt_id = pkt_id + 1
+			numberOfPackets = numberOfPackets - 1
+		        delay =  10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4)
+			buf:setDelay(delay)
+			counter = counter + 1
+			if numberOfPackets <= 0 then
+	                        print(i)
+				rateLimiter:sendN(bufs, i)
+				lm.sleepMillis(1500)
+				print(counter)
+				lm.stop()
+				lm.sleepMillis(1500)
+				os.exit(0)
+				return
+			end
 		end
-
-		queue:send(bufs)
+		rateLimiter:send(bufs)
 	end
 end
