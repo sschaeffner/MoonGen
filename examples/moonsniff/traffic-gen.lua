@@ -21,6 +21,7 @@ function configure(parser)
 	parser:option("-v --fix-packetrate", "Approximate send rate in pps."):convert(tonumber):default(10000):target('fixedPacketRate')
 	parser:option("-s --src-mac", "Overwrite source MAC address of every sent packet"):default(''):target("srcMAC")
 	parser:option("-d --dst-mac", "Overwrite destination MAC address of every sent packet"):default(''):target("dstMAC")
+	parser:option("-l --l4-dst", "Set the layer 4 destination port"):default(23432):target("l4dst")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(100000):convert(tonumber):target("numberOfPackets")
 	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(100):target('packetSize')
 
@@ -39,9 +40,9 @@ function master(args)
         dstmc = parseMacAddress(args.dstMAC, 0)
 	srcmc = parseMacAddress(args.srcMAC, 0)
 
+
 	rateLimiter = limiter:new(dev0tx, "custom")
 	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc)
-
 
 	sender0:wait()
 	lm.stop()
@@ -55,7 +56,8 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	local runtime = timer:new(args.time)
 	local mempool = memory.createMemPool(function(buf)
 		buf:getUdpPacket():fill {
-			pktLength = args.packetSize;
+			pktLength = args.packetSize,
+			udpDst = args.l4dst
 		}
 	end)
 	local bufs = mempool:bufArray()
