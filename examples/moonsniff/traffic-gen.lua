@@ -94,6 +94,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 				return
 			end
 		end
+		bufs:offloadUdpChecksums()
 		rateLimiter:send(bufs)
 	end
 end
