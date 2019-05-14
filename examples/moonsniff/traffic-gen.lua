@@ -24,6 +24,7 @@ function configure(parser)
 	parser:option("-l --l4-dst", "Set the layer 4 destination port"):default(23432):target("l4dst")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(100000):convert(tonumber):target("numberOfPackets")
 	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(100):target('packetSize')
+	parser:option("-w --warm-up", "Warm-up device by sending 1000 pkts and pausing n seconds before real test begins."):convert(tonumber):default(0):target('warmUp')
 
 	return parser:parse()
 end
@@ -44,6 +45,10 @@ function master(args)
 	rateLimiter = limiter:new(dev0tx, "custom")
 	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc)
 
+	if args.warmUp > 0 then
+		print('warm up active')
+	end
+
 	sender0:wait()
 	lm.stop()
 	lm.waitForTasks()
@@ -53,6 +58,9 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	log:info("Trying to enable rx timestamping of all packets, this isn't supported by most nics")
 	local pkt_id = 0
 	local numberOfPackets = args.numberOfPackets
+	if args.warmUp then
+		numberOfPackets = numberOfPackets + 1000
+	end
 	local runtime = timer:new(args.time)
 	local mempool = memory.createMemPool(function(buf)
 		buf:getUdpPacket():fill {
@@ -80,9 +88,17 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 			pkt.payload.uint8[4] = MS_TYPE
 			pkt_id = pkt_id + 1
 			numberOfPackets = numberOfPackets - 1
-		        delay =  10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4)
-			buf:setDelay(delay)
 			counter = counter + 1
+			if args.warmUp > 0 and counter == 1000 then
+				print("Warm-up ended, no packets for " .. args.warmUp .. "s.")
+				lm.sleepMillis(1000 * args.warmUp)
+				print("Packet generation continues.")
+				delay =  (10000000000 / 8) * args.warmUp
+				buf:setDelay(delay)
+			elseif (args.warmUp > 0 and counter > 1000) or args.warmUp <= 0 then
+				delay =  10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4)
+				buf:setDelay(delay)
+			end
 			if numberOfPackets <= 0 then
 	                        print(i)
 				rateLimiter:sendN(bufs, i)
@@ -94,6 +110,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 				return
 			end
 		end
+		bufs:offloadIPChecksums()
 		bufs:offloadUdpChecksums()
 		rateLimiter:send(bufs)
 	end
