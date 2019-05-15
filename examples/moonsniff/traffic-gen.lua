@@ -59,7 +59,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	local pkt_id = 0
 	local numberOfPackets = args.numberOfPackets
 	if args.warmUp then
-		numberOfPackets = numberOfPackets + 1000
+		numberOfPackets = numberOfPackets + 945
 	end
 	local runtime = timer:new(args.time)
 	local mempool = memory.createMemPool(function(buf)
@@ -89,13 +89,19 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 			pkt_id = pkt_id + 1
 			numberOfPackets = numberOfPackets - 1
 			counter = counter + 1
-			if args.warmUp > 0 and counter == 1000 then
-				print("Warm-up ended, no packets for " .. args.warmUp .. "s.")
-				lm.sleepMillis(1000 * args.warmUp)
-				print("Packet generation continues.")
+			--if args.warmUp > 0 and counter == 1000 then
+			--	print("Warm-up ended, no packets for " .. args.warmUp .. "s.")
+			--	print(i)
+			--	rateLimiter:sendN(bufs, i)
+			--	lm.sleepMillis(1000 * args.warmUp)
+			--	--delay =  (10000000000 / 8) * args.warmUp
+			--	--buf:setDelay(0)
+			--	print("Packet generation continues.")
+			if (args.warmUp > 0 and counter == 946) then
 				delay =  (10000000000 / 8) * args.warmUp
 				buf:setDelay(delay)
-			elseif (args.warmUp > 0 and counter > 1000) or args.warmUp <= 0 then
+			--elseif (args.warmUp > 0 and counter > 946) or args.warmUp <= 0 then
+			else
 				delay =  10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4)
 				buf:setDelay(delay)
 			end
@@ -113,5 +119,9 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 		bufs:offloadIPChecksums()
 		bufs:offloadUdpChecksums()
 		rateLimiter:send(bufs)
+			
+		if args.warmUp > 0 and counter == 945 then
+			lm.sleepMillis(1000 * args.warmUp)
+		end
 	end
 end
