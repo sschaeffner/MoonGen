@@ -96,9 +96,6 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 			if args.flows > 1 then
 				pkt.ip4.src:set(baseIP + (counter % args.flows))
 			end
-			if counter == 1048576 then
-				print('reached 1,000,000 pkts')
-			end
 			--if args.warmUp > 0 and counter == 1000 then
 			--	print("Warm-up ended, no packets for " .. args.warmUp .. "s.")
 			--	print(i)
