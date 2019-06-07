@@ -15,6 +15,8 @@ local limiter = require "software-ratecontrol"
 local MS_TYPE = 0b01010101
 local band = bit.band
 
+local SRC_IP_BASE	= "10.0.0.10" -- actual address will be SRC_IP_BASE + random(0, flows)
+
 function configure(parser)
 	parser:description("Generate traffic which can be used by moonsniff to establish latencies induced by a device under test.")
 	parser:argument("dev", "Devices to use."):args(2):convert(tonumber)
@@ -25,6 +27,7 @@ function configure(parser)
 	parser:option("-p --packets", "Send only the number of packets specified"):default(100000):convert(tonumber):target("numberOfPackets")
 	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(100):target('packetSize')
 	parser:option("-w --warm-up", "Warm-up device by sending 1000 pkts and pausing n seconds before real test begins."):convert(tonumber):default(0):target('warmUp')
+        parser:option("-f --flows", "Number of flows (randomized source IP)."):default(1):convert(tonumber):target('flows')
 
 	return parser:parse()
 end
@@ -57,6 +60,7 @@ end
 function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	log:info("Trying to enable rx timestamping of all packets, this isn't supported by most nics")
 	local pkt_id = 0
+	local baseIP = parseIPAddress(SRC_IP_BASE)
 	local numberOfPackets = args.numberOfPackets
 	if args.warmUp then
 		numberOfPackets = numberOfPackets + 945
@@ -89,6 +93,12 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 			pkt_id = pkt_id + 1
 			numberOfPackets = numberOfPackets - 1
 			counter = counter + 1
+			if args.flows > 1 then
+				pkt.ip4.src:set(baseIP + (counter % args.flows))
+			end
+			if counter == 1048576 then
+				print('reached 1,000,000 pkts')
+			end
 			--if args.warmUp > 0 and counter == 1000 then
 			--	print("Warm-up ended, no packets for " .. args.warmUp .. "s.")
 			--	print(i)
