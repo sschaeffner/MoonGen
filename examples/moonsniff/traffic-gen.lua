@@ -26,6 +26,7 @@ function configure(parser)
 	parser:option("-l --l4-dst", "Set the layer 4 destination port"):default(23432):target("l4dst")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(100000):convert(tonumber):target("numberOfPackets")
 	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(100):target('packetSize')
+	parser:option("-b --burst", "Generated traffic is generated with the specified burst size (default burst size 1)"):default(1):target("burstSize")
 	parser:option("-w --warm-up", "Warm-up device by sending 1000 pkts and pausing n seconds before real test begins."):convert(tonumber):default(0):target('warmUp')
         parser:option("-f --flows", "Number of flows (randomized source IP)."):default(1):convert(tonumber):target('flows')
 
@@ -74,6 +75,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 	end)
 	local bufs = mempool:bufArray()
 	counter = 0
+	delay = 0
 	while lm.running() do
 		bufs:alloc(args.packetSize)
 
@@ -109,8 +111,13 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 				buf:setDelay(delay)
 			--elseif (args.warmUp > 0 and counter > 946) or args.warmUp <= 0 then
 			else
-				delay =  10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4)
-				buf:setDelay(delay)
+				delay =  delay + (10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4))
+				if counter % args.burstSize == 0 then
+					buf:setDelay(delay)
+					delay = 0
+				else
+					buf:setDelay(0)
+				end
 			end
 			if numberOfPackets <= 0 then
 	                        print(i)
