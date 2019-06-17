@@ -109,6 +109,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC)
 			if (args.warmUp > 0 and counter == 946) then
 				delay =  (10000000000 / 8) * args.warmUp
 				buf:setDelay(delay)
+				delay = 0
 			--elseif (args.warmUp > 0 and counter > 946) or args.warmUp <= 0 then
 			else
 				delay =  delay + (10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4))
