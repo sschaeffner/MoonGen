@@ -21,7 +21,7 @@ function configure(parser)
 	parser:option("-i --src-ip", "Overwrite src IP address of every sent packet"):default('10.0.0.1'):target("srcIP")
 	parser:option("-j --dst-ip", "Overwrite dst IP address of every sent packet"):default('10.0.1.1'):target("dstIP")
 	parser:option("-p --packets", "Send only the number of packets specified"):default(1000000):convert(tonumber):target("numberOfPackets")
-	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(60):target('packetSize')
+	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(48):target('packetSize')
 	parser:option("-b --burst", "Generated traffic is generated with the specified burst size (default burst size 1)"):default(1):target("burstSize")
 	parser:option("-w --warm-up", "Warm-up device by sending 1000 pkts and pausing n seconds before real test begins."):convert(tonumber):default(0):target('warmUp')
 
@@ -29,13 +29,15 @@ function configure(parser)
 end
 
 function master(args)
+	rxdevid = args.dev[2]
 	args.dev[1] = device.config { port = args.dev[1], txQueues = 1 }
 	args.dev[2] = device.config { port = args.dev[2], rxQueues = 1 }
 	device.waitForLinks()
 	local dev0tx = args.dev[1]:getTxQueue(0)
 	local dev1rx = args.dev[2]:getRxQueue(0)
 
-	stats.startStatsTask { txDevices = { args.dev[1] }, rxDevices = { args.dev[2] } }
+	--stats.startStatsTask { txDevices = { args.dev[1] }, rxDevices = { args.dev[2] } }
+	stats.startStatsTask { txDevices = { args.dev[1] } }
 
         dstmc = parseMacAddress(args.dstMAC, 0)
 	srcmc = parseMacAddress(args.srcMAC, 0)
@@ -45,17 +47,36 @@ function master(args)
 
 	print(dstip)
 	print(srcip)
+	print(rxdevid)
 
 	rateLimiter = limiter:new(dev0tx, "custom")
 	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc, dstip, srcip)
+	local recv = lm .startTask("dumper", dev1rx, rxdevid)
 
 	if args.warmUp > 0 then
 		print('warm up active')
 	end
 
 	sender0:wait()
+	recv:wait()
 	lm.stop()
 	lm.waitForTasks()
+end
+
+function dumper(queue, ifid)
+        local bufs = memory.bufArray()
+        local pktCtr = stats:newPktRxCounter("Device: id=" .. ifid, "plain")
+        while lm.running() do
+                local rx = queue:tryRecv(bufs, 100)
+                for i = 1, rx do
+                        local buf = bufs[i]
+			--buf:dump()
+                        pktCtr:countPacket(buf)
+                end
+                bufs:free(rx)
+                pktCtr:update()
+        end
+        pktCtr:finalize()
 end
 
 function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP)
@@ -102,6 +123,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP)
 					buf:setDelay(0)
 				end
 			end
+			pkt.ip4:calculateChecksum()
 			if numberOfPackets <= 0 then
 	                        print(i)
 				rateLimiter:sendN(bufs, i)
