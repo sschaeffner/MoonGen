@@ -113,6 +113,9 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP,
 				delay = 0
 			else
 				delay =  delay + (10000000000 / args.fixedPacketRate / 8 - (args.packetSize + 4))
+				if delay < 0 then
+					delay = 0
+				end
 				if counter % args.burstSize == 0 then
 					buf:setDelay(delay)
 					delay = 0
