@@ -138,7 +138,7 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP,
 				return
 			end
 		end
-		if offloadChksum >= 1 then
+		if tonumber(offloadChksum) >= 1 then
 			bufs:offloadIPChecksums()
 			bufs:offloadUdpChecksums()
 		end
