@@ -23,6 +23,7 @@ function configure(parser)
 	parser:option("-p --packets", "Send only the number of packets specified"):default(1000000):convert(tonumber):target("numberOfPackets")
 	parser:option("-x --size", "Packet size in bytes."):convert(tonumber):default(48):target('packetSize')
 	parser:option("-o --ip-chksum", "IP chksum calculation flag to enable (1) / disable (0) software calculation of IP checksum"):default(0):target("ipChksum")
+	parser:option("-c --chksum-offload", "Enable (1) / disable (0) offloading of checksums"):default(1):target("offloadChksum")
 	parser:option("-b --burst", "Generated traffic is generated with the specified burst size (default burst size 1)"):default(1):target("burstSize")
 	parser:option("-w --warm-up", "Warm-up device by sending 1000 pkts and pausing n seconds before real test begins."):convert(tonumber):default(0):target('warmUp')
 
@@ -47,7 +48,7 @@ function master(args)
 	srcip = parseIPAddress(args.srcIP)
 
 	rateLimiter = limiter:new(dev0tx, "custom")
-	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc, dstip, srcip, args.ipChksum)
+	local sender0 = lm.startTask("generateTraffic", dev0tx, args, rateLimiter, dstmc, srcmc, dstip, srcip, args.ipChksum, args.offloadChksum)
 	local recv = lm .startTask("dumper", dev1rx, rxdevid)
 
 	if args.warmUp > 0 then
@@ -76,7 +77,7 @@ function dumper(queue, ifid)
         pktCtr:finalize()
 end
 
-function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP, ipChksum)
+function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP, ipChksum, offloadChksum)
 	log:info("Trying to enable rx timestamping of all packets, this isn't supported by most nics")
 	local numberOfPackets = args.numberOfPackets
 	if args.warmUp > 0 then
@@ -137,10 +138,12 @@ function generateTraffic(queue, args, rateLimiter, dstMAC, srcMAC, dstIP, srcIP,
 				return
 			end
 		end
-		bufs:offloadIPChecksums()
-		bufs:offloadUdpChecksums()
+		if offloadChksum >= 1 then
+			bufs:offloadIPChecksums()
+			bufs:offloadUdpChecksums()
+		end
 		rateLimiter:send(bufs)
-			
+
 		if args.warmUp > 0 and counter == 945 then
 			lm.sleepMillis(1000 * args.warmUp)
 		end
