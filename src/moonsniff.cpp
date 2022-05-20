@@ -185,7 +185,7 @@ namespace moonsniff {
             std::cerr << "ftruncate failed: " << errno << std::endl;
         }
         std::cout << "File: " << filename << std::endl;
-        void* addr = mmap(0, size, PROT_WRITE, MAP_SHARED | MAP_NORESERVE, fd, 0);
+        uint8_t* addr = static_cast<uint8_t*>(mmap(0, size, PROT_WRITE, MAP_SHARED | MAP_NORESERVE, fd, 0));
         if (addr == MAP_FAILED) {
             std::cerr << "mmap failed: " << errno << std::endl;
         }
@@ -214,10 +214,14 @@ namespace moonsniff {
 
             for (int i = 0; i < rx; i++) {
                 if ((rx_pkts[i]->ol_flags | PKT_RX_IEEE1588_TMST) != 0) {
-                	if ((size_t)(offset + rx_pkts[i] + 8) <= size) {
+                	if ((size_t)(offset + rx_pkts[i]->pkt_len + 8) >= size) {
+                		ftruncate(fd, 2*size);
+                        void* temp = mremap(addr, size, size*2, MREMAP_MAYMOVE);
+                        if (temp == (void*)-1) {
+                            perror("Error on mremap()");
+                        }
+                        addr = static_cast<uint8_t*>(temp);
                         size *= 2;
-                        ftruncate(fd, size);
-                        mremap(addr, size/2, size, MREMAP_MAYMOVE);
                     }
                     uint32_t* timestamp32 = (uint32_t*)((uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off + rx_pkts[i]->pkt_len - 8);
                     uint32_t low = timestamp32[0];
@@ -228,7 +232,7 @@ namespace moonsniff {
                     rechdr.incl_len = rx_pkts[i]->pkt_len - 8;
                     rechdr.orig_len = rx_pkts[i]->pkt_len - 8;
                     memcpy(addr + offset, &rechdr, sizeof(rechdr));
-                    memcpy(addr + offset + sizeof(rechdr), (uint8_t*)(rx_pkts[i]->buf_addr + rx_pkts[i]->data_off), rx_pkts[i]->pkt_len - 8);
+                    memcpy(addr + offset + sizeof(rechdr), (uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off, rx_pkts[i]->pkt_len - 8);
                     offset += (rx_pkts[i]->pkt_len + 8);
                 }
 
