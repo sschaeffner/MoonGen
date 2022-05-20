@@ -190,7 +190,7 @@ namespace moonsniff {
             std::cerr << "mmap failed: " << errno << std::endl;
         }
 
-        std::clock_t endtime = std::clock() + CLOCKS_PER_SEC * runtime;
+        std::time_t starttime = std::time(nullptr);
 
         size_t offset = 0;
         pcap_hdr_t hdr;
@@ -209,7 +209,7 @@ namespace moonsniff {
 
         memcpy(addr, &hdr, sizeof(pcap_hdr_t));
 
-        while (libmoon::is_running(0) && std::clock() < endtime) {
+        while (libmoon::is_running(0) && std::difftime(std::time(nullptr), starttime) < runtime) {
             uint16_t rx = rte_eth_rx_burst(port_id, queue_id, rx_pkts, nb_pkts);
 
             for (int i = 0; i < rx; i++) {
