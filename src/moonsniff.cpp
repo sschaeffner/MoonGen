@@ -4,7 +4,11 @@
 #include <iostream>
 #include <mutex>
 #include <fstream>
-
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
 #include "lifecycle.hpp"
@@ -160,9 +164,9 @@ namespace moonsniff {
         uint32_t ts_usec;  /* timestamp microseconds */
         uint32_t incl_len; /* number of octets of packet saved in file */
         uint32_t orig_len; /* actual length of packet */
-        uint8_t data[1500];
     } pcaprec_hdr_t;
 
+    size_t INITIAL_FILE_SIZE            = 512 * 1024 * 1024;
     uint32_t TCPDUMP_MAGIC              = 0xA1B2C3D4;
     uint32_t TCPDUMP_MAGIC_SWAPPED      = 0xD4C3B2A1;
     uint32_t TCPDUMP_MAGIC_NANO         = 0xA1B23C4D;
@@ -171,10 +175,24 @@ namespace moonsniff {
     bool useNanosecondTimestamps = true;
 
     void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename) {
-        std::ofstream out (filename, std::ofstream::binary | std::ofstream::trunc);
+        int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0666);
+        if (!fd) {
+            std::cerr << "open failed" << std::endl;
+        }
+        size_t size = INITIAL_FILE_SIZE;
+        int ret = ftruncate(fd, size);
+        if (ret) {
+            std::cerr << "ftruncate failed: " << errno << std::endl;
+        }
+        std::cout << "File: " << filename << std::endl;
+        void* addr = mmap(0, size, PROT_WRITE, MAP_SHARED | MAP_NORESERVE, fd, 0);
+        if (addr == MAP_FAILED) {
+            std::cerr << "mmap failed: " << errno << std::endl;
+        }
 
         std::clock_t endtime = std::clock() + CLOCKS_PER_SEC * runtime;
 
+        size_t offset = 0;
         pcap_hdr_t hdr;
         pcaprec_hdr_t rechdr;
         if (useNanosecondTimestamps) {
@@ -189,13 +207,18 @@ namespace moonsniff {
         hdr.snaplen = 0x40000;
         hdr.network = 1;
 
-        out.write((char*)&hdr, sizeof(pcap_hdr_t));
+        memcpy(addr, &hdr, sizeof(pcap_hdr_t));
 
         while (libmoon::is_running(0) && std::clock() < endtime) {
             uint16_t rx = rte_eth_rx_burst(port_id, queue_id, rx_pkts, nb_pkts);
 
             for (int i = 0; i < rx; i++) {
                 if ((rx_pkts[i]->ol_flags | PKT_RX_IEEE1588_TMST) != 0) {
+                	if ((size_t)(offset + rx_pkts[i] + 8) <= size) {
+                        size *= 2;
+                        ftruncate(fd, size);
+                        mremap(addr, size/2, size, MREMAP_MAYMOVE);
+                    }
                     uint32_t* timestamp32 = (uint32_t*)((uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off + rx_pkts[i]->pkt_len - 8);
                     uint32_t low = timestamp32[0];
                     uint32_t high = timestamp32[1];
@@ -204,13 +227,19 @@ namespace moonsniff {
                     rechdr.ts_usec = low;
                     rechdr.incl_len = rx_pkts[i]->pkt_len - 8;
                     rechdr.orig_len = rx_pkts[i]->pkt_len - 8;
-                    memcpy(&rechdr.data, (uint8_t*)(rx_pkts[i]->buf_addr + rx_pkts[i]->data_off), rx_pkts[i]->pkt_len - 8);
-                    out.write((char*)&rechdr, rx_pkts[i]->pkt_len + 8);
+                    memcpy(addr + offset, &rechdr, sizeof(rechdr));
+                    memcpy(addr + offset + sizeof(rechdr), (uint8_t*)(rx_pkts[i]->buf_addr + rx_pkts[i]->data_off), rx_pkts[i]->pkt_len - 8);
+                    offset += (rx_pkts[i]->pkt_len + 8);
                 }
 
                 rte_pktmbuf_free(rx_pkts[i]);
             }
         }
+
+        munmap(addr, size);
+        ftruncate(fd, offset);
+        fsync(fd);
+        close(fd);
 
     }
 }
