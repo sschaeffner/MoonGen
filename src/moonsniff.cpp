@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <ctime>
 #include <string>
 #include <iostream>
 #include <mutex>
@@ -169,8 +170,10 @@ namespace moonsniff {
 
     bool useNanosecondTimestamps = true;
 
-    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, const char* filename) {
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename) {
         std::ofstream out (filename, std::ofstream::binary | std::ofstream::trunc);
+
+        std::clock_t endtime = std::clock() + CLOCKS_PER_SEC * runtime;
 
         pcap_hdr_t hdr;
         pcaprec_hdr_t rechdr;
@@ -188,7 +191,7 @@ namespace moonsniff {
 
         out.write((char*)&hdr, sizeof(pcap_hdr_t));
 
-        while (libmoon::is_running(0)) {
+        while (libmoon::is_running(0) && std::clock() < endtime) {
             uint16_t rx = rte_eth_rx_burst(port_id, queue_id, rx_pkts, nb_pkts);
 
             for (int i = 0; i < rx; i++) {
@@ -233,8 +236,8 @@ extern "C" {
         moonsniff::ms_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, seqnum_offset, filename);
     }
 
-    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, const char* filename) {
-        moonsniff::pcap_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, filename);
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename) {
+        moonsniff::pcap_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, runtime, filename);
     }
 
 //void ms_set_thresh(int64_t thresh) {

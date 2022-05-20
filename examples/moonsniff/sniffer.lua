@@ -172,7 +172,7 @@ function core_offline(queue, bufs, filename, args)
 end
 
 function core_capture_c(queue, bufs, filename, args)
-	C.pcap_log_pkts(queue.id, queue.qid, bufs.array, bufs.size, filename)
+	C.pcap_log_pkts(queue.id, queue.qid, bufs.array, bufs.size, args.time, filename)
 end
 
 function core_capture(queue, bufs, writer, args)
