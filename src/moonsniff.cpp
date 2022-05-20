@@ -16,7 +16,6 @@
 #define UINT24_MAX 16777215
 #define INDEX_MASK (uint32_t) 0x00FFFFFF
 
-
 /*
  * This namespace holds functions which are used by MoonSniff's Live Mode
  *
@@ -174,7 +173,7 @@ namespace moonsniff {
 
     bool useNanosecondTimestamps = true;
 
-    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename) {
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename, uint32_t snap_len) {
         int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0666);
         if (!fd) {
             std::cerr << "open failed" << std::endl;
@@ -204,7 +203,7 @@ namespace moonsniff {
         hdr.version_minor = 4;
         hdr.thiszone = 0;
         hdr.sigfigs = 0;
-        hdr.snaplen = 0x40000;
+        hdr.snaplen = snap_len;
         hdr.network = 1;
 
         memcpy(addr, &hdr, sizeof(pcap_hdr_t));
@@ -214,6 +213,7 @@ namespace moonsniff {
 
             for (int i = 0; i < rx; i++) {
                 if ((rx_pkts[i]->ol_flags | PKT_RX_IEEE1588_TMST) != 0) {
+                	uint32_t incl_len = (rx_pkts[i]->pkt_len - 8 < snap_len) ? rx_pkts[i]->pkt_len - 8 : snap_len;
                 	if ((size_t)(offset + rx_pkts[i]->pkt_len + 8) >= size) {
                 		ftruncate(fd, 2*size);
                         void* temp = mremap(addr, size, size*2, MREMAP_MAYMOVE);
@@ -229,11 +229,11 @@ namespace moonsniff {
 
                     rechdr.ts_sec = high;
                     rechdr.ts_usec = low;
-                    rechdr.incl_len = rx_pkts[i]->pkt_len - 8;
+                    rechdr.incl_len = incl_len;
                     rechdr.orig_len = rx_pkts[i]->pkt_len - 8;
                     memcpy(addr + offset, &rechdr, sizeof(rechdr));
-                    memcpy(addr + offset + sizeof(rechdr), (uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off, rx_pkts[i]->pkt_len - 8);
-                    offset += (rx_pkts[i]->pkt_len + 8);
+                    memcpy(addr + offset + sizeof(rechdr), (uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off, incl_len);
+                    offset += incl_len + 16;
                 }
 
                 rte_pktmbuf_free(rx_pkts[i]);
@@ -269,8 +269,8 @@ extern "C" {
         moonsniff::ms_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, seqnum_offset, filename);
     }
 
-    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename) {
-        moonsniff::pcap_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, runtime, filename);
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t runtime, const char* filename, uint32_t snap_len) {
+        moonsniff::pcap_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, runtime, filename, snap_len);
     }
 
 //void ms_set_thresh(int64_t thresh) {
