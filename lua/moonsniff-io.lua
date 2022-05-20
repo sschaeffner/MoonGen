@@ -27,6 +27,8 @@ ffi.cdef [[
 	struct ms_stats ms_fetch_stats();
 	void ms_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t seqnum_offset, const char* filename);
 
+	void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, const char* filename);
+
 	//---------------MSCAP Writer/Reader-------------------------
 	struct mscap {
 		uint64_t timestamp;  /* timestamp in nanoseconds */

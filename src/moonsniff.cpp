@@ -142,27 +142,118 @@ namespace moonsniff {
 			}
 		}
 	}
+
+
+    typedef struct {
+        uint32_t magic_number;  /* magic number */
+        uint16_t version_major; /* major version number */
+        uint16_t version_minor; /* minor version number */
+        int32_t thiszone;       /* GMT to local correction */
+        uint32_t sigfigs;       /* accuracy of timestamps */
+        uint32_t snaplen;       /* max length of captured packets, in octets */
+        uint32_t network;       /* data link type */
+    } pcap_hdr_t;
+
+    typedef struct {
+        uint32_t ts_sec;   /* timestamp seconds */
+        uint32_t ts_usec;  /* timestamp microseconds */
+        uint32_t incl_len; /* number of octets of packet saved in file */
+        uint32_t orig_len; /* actual length of packet */
+        uint8_t data[1500];
+    } pcaprec_hdr_t;
+
+    uint32_t TCPDUMP_MAGIC              = 0xA1B2C3D4;
+    uint32_t TCPDUMP_MAGIC_SWAPPED      = 0xD4C3B2A1;
+    uint32_t TCPDUMP_MAGIC_NANO         = 0xA1B23C4D;
+    uint32_t TCPDUMP_MAGIC_NANO_SWAPPED = 0x4D3CB2A1;
+
+    bool useNanosecondTimestamps = true;
+
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, const char* filename) {
+        std::ofstream out (filename, std::ofstream::binary | std::ofstream::trunc);
+
+        pcap_hdr_t hdr;
+        pcaprec_hdr_t rechdr;
+        if (useNanosecondTimestamps) {
+            hdr.magic_number = TCPDUMP_MAGIC_NANO;
+        } else {
+            hdr.magic_number = TCPDUMP_MAGIC;
+        }
+        hdr.version_major = 2;
+        hdr.version_minor = 4;
+        hdr.thiszone = 0;
+        hdr.sigfigs = 0;
+        hdr.snaplen = 0x40000;
+        hdr.network = 1;
+
+        out.write((char*)&hdr, sizeof(pcap_hdr_t));
+
+        while (libmoon::is_running(0)) {
+            uint16_t rx = rte_eth_rx_burst(port_id, queue_id, rx_pkts, nb_pkts);
+
+            for (int i = 0; i < rx; i++) {
+                if ((rx_pkts[i]->ol_flags | PKT_RX_IEEE1588_TMST) != 0) {
+                    uint32_t* timestamp32 = (uint32_t*)((uint8_t*)rx_pkts[i]->buf_addr + rx_pkts[i]->data_off + rx_pkts[i]->pkt_len - 8);
+                    uint32_t low = timestamp32[0];
+                    uint32_t high = timestamp32[1];
+
+                    rechdr.ts_sec = high;
+                    rechdr.ts_usec = low;
+                    rechdr.incl_len = rx_pkts[i]->pkt_len - 8;
+                    rechdr.orig_len = rx_pkts[i]->pkt_len - 8;
+                    memcpy(&rechdr.data, (uint8_t*)(rx_pkts[i]->buf_addr + rx_pkts[i]->data_off), rx_pkts[i]->pkt_len - 8);
+                    out.write((char*)&rechdr, rx_pkts[i]->pkt_len + 8);
+                }
+
+                rte_pktmbuf_free(rx_pkts[i]);
+            }
+        }
+
+    }
 }
 
 extern "C" {
 
-void ms_set_thresh(int64_t thresh) {
-	moonsniff::thresh = thresh;
-}
+    void ms_set_thresh(int64_t thresh) {
+        moonsniff::thresh = thresh;
+    }
 
-void ms_add_entry(uint32_t identification, uint64_t timestamp) {
-	moonsniff::add_entry(identification, timestamp);
-}
+    void ms_add_entry(uint32_t identification, uint64_t timestamp) {
+        moonsniff::add_entry(identification, timestamp);
+    }
 
-void ms_test_for(uint32_t identification, uint64_t timestamp) {
-	moonsniff::test_for(identification, timestamp);
-}
+    void ms_test_for(uint32_t identification, uint64_t timestamp) {
+        moonsniff::test_for(identification, timestamp);
+    }
+    moonsniff::ms_stats ms_fetch_stats() {
+        return moonsniff::fetch_stats();
+    }
 
-moonsniff::ms_stats ms_fetch_stats() {
-	return moonsniff::fetch_stats();
-}
+    void ms_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t seqnum_offset, const char* filename) {
+        moonsniff::ms_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, seqnum_offset, filename);
+    }
 
-void ms_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t seqnum_offset, const char* filename) {
-	moonsniff::ms_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, seqnum_offset, filename);
-}
+    void pcap_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, const char* filename) {
+        moonsniff::pcap_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, filename);
+    }
+
+//void ms_set_thresh(int64_t thresh) {
+//	moonsniff::thresh = thresh;
+//}
+
+//void ms_add_entry(uint32_t identification, uint64_t timestamp) {
+//	moonsniff::add_entry(identification, timestamp);
+//}
+
+//void ms_test_for(uint32_t identification, uint64_t timestamp) {
+//	moonsniff::test_for(identification, timestamp);
+//}
+
+//moonsniff::ms_stats ms_fetch_stats() {
+//	return moonsniff::fetch_stats();
+//}
+
+//void ms_log_pkts(uint8_t port_id, uint16_t queue_id, struct rte_mbuf** rx_pkts, uint16_t nb_pkts, uint32_t seqnum_offset, const char* filename) {
+//	moonsniff::ms_log_pkts(port_id, queue_id, rx_pkts, nb_pkts, seqnum_offset, filename);
+//}
 }

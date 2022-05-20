@@ -109,14 +109,17 @@ function timestamp(queue, otherdev, bar, pre, args)
 		local writer
 		if pre then
 			-- set the relative starting timestamp to 0
-			writer = pcap:newWriter(args.output .. "-pre.pcap", 0)
+			# writer = pcap:newWriter(args.output .. "-pre.pcap", 0)
+			filename = args.output .. "-pre.pcap"
 		else
-			writer = pcap:newWriter(args.output .. "-post.pcap", 0)
+			# writer = pcap:newWriter(args.output .. "-post.pcap", 0)
+			filename = args.output .. "-post.pcap"
 		end
 
 		bar:wait()
-		core_capture(queue, bufs, writer, args)
-		writer:close()
+		# core_capture(queue, bufs, writer, args)
+		# writer:close()
+		core_capture_c(queue, bufs, filename, args)
 
 	else
 		local filename
@@ -166,6 +169,10 @@ end
 
 function core_offline(queue, bufs, filename, args)
 	C.ms_log_pkts(queue.id, queue.qid, bufs.array, bufs.size, args.seq_offset, filename)
+end
+
+function core_capture_c(queue, bufs, filename, args)
+	C.pcap_log_pkts(queue.id, queue.qid, bufs.array, bufs.size, filename)
 end
 
 function core_capture(queue, bufs, writer, args)
